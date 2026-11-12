@@ -67,6 +67,8 @@ data class Room(
     val band: String,
     /** Original room rectangle (a recessed balcony can carve into it). */
     val rect: Rect,
+    /** Usable floor tiles inside the rect: walls, posts and doorways excluded. */
+    val usableTiles: Int = 0,
 )
 
 class FloorPlan(
@@ -216,20 +218,53 @@ fun generateBuilding(opts: BuildingOptions = BuildingOptions()): Building {
             lastIssues = listOf(err.toString())
         }
     }
+    // Deterministic fallback: one last plan with the variations stripped (no merged halls,
+    // no connecting doors, no upper-floor features), held to the same room minimums. The
+    // recorded attempt count names it as the fallback.
+    try {
+        val fallback = buildOnce(seed + maxAttempts * 7919L, opts, seed, maxAttempts + 1, prof, minimal = true)
+        if (validateBuilding(fallback, prof).isEmpty()) return fallback
+    } catch (err: Throwable) {
+        lastIssues = listOf(err.toString())
+    }
     throw IllegalStateException(
         "Could not generate a sound ${prof.name}: ${lastIssues.take(3).joinToString("; ")}",
     )
 }
 
-private fun buildOnce(seed: Long, opts: BuildingOptions, outSeed: Long, attempts: Int, prof: ArchProfile): Building {
+private fun buildOnce(
+    seed: Long,
+    opts: BuildingOptions,
+    outSeed: Long,
+    attempts: Int,
+    baseProf: ArchProfile,
+    minimal: Boolean = false,
+): Building {
+    val prof = if (minimal) {
+        baseProf.copy(
+            groundOpenChance = 0.0, groundOpenNorth = 0.0, upperOpenChance = 0.0,
+            connectorChance = 0.0, allowFeatures = false,
+        )
+    } else {
+        baseProf
+    }
     val rng = Rng(seed)
     val nFloors = maxOf(prof.floorsMin, opts.floors ?: rng.int(prof.floorsMin, prof.floorsMax))
     val W = (opts.width ?: rng.int(prof.wMin, prof.wMax)).coerceIn(prof.wCapMin, prof.wCapMax)
     val D = (opts.depth ?: rng.int(prof.dMin, prof.dMax)).coerceIn(prof.dMin, prof.dMax)
 
+    // Quality pass: how is this plan organised? The profile declares its strategy; a compact
+    // declared footprint on a fallback-allowed profile changes strategy rather than growing
+    // rooms too shallow to be usable.
+    if (prof.style == LayoutStyle.OPEN_PLAN ||
+        (prof.allowOpenPlanFallback && D - 4 - prof.hallW < 2 * prof.bandMin)
+    ) {
+        return buildOpenPlan(rng, nFloors, W, D, outSeed, attempts, prof)
+    }
+
     // Vertical layout: wall | north rooms | wall | hall | wall | south rooms | wall.
-    // The hall width and the room-band depths are profile traits: a cottage keeps a snug
-    // one-tile passage with shallow rooms, a manor keeps the classic two-tile hall.
+    // The hall width and the room-band depths are profile traits: a manor keeps the classic
+    // two-tile hall; small homes never take this path at all (see [buildOpenPlan]).
     val sum = D - 4 - prof.hallW
     val hi = minOf(prof.bandMax, sum - prof.bandMin).coerceAtLeast(1)
     val lo = maxOf(prof.bandMin, sum - prof.bandMax).coerceAtMost(hi)
@@ -275,9 +310,11 @@ private fun buildOnce(seed: Long, opts: BuildingOptions, outSeed: Long, attempts
         }
     }
     ground.frontBay = front
-    ground.backBay = rng.int(0, nb0 - 1)
     ground.features.add("front door (south)")
-    ground.features.add("back door (north)")
+    if (prof.backDoor) {
+        ground.backBay = rng.int(0, nb0 - 1)
+        ground.features.add("back door (north)")
+    }
     val openGround = rng.chance(prof.groundOpenChance)
     if (openGround && cuts.isNotEmpty()) {
         if (prof.groundOpenChance >= 1.0) {
@@ -392,6 +429,237 @@ private fun buildOnce(seed: Long, opts: BuildingOptions, outSeed: Long, attempts
     return Building(seed = outSeed, attempts = attempts, width = gridW, height = gridH, floors = floors, stairs = stairs)
 }
 
+/**
+ * Quality pass — the open-plan strategy: one primary space spans the full depth of the
+ * building's front (the room the building is about), and the remaining rooms sit in a north
+ * band that opens straight onto it through a single partition wall. No hallway: in a small
+ * home the passage would eat the rooms it serves. Doorways are deliberate — one front door,
+ * and one door per room into the primary space, never a lottery of connectors.
+ */
+private fun buildOpenPlan(
+    rng: Rng,
+    nFloors: Int,
+    W: Int,
+    D: Int,
+    outSeed: Long,
+    attempts: Int,
+    prof: ArchProfile,
+): Building {
+    val x0 = MARGIN
+    val y0 = MARGIN
+    val x1 = x0 + W - 1
+
+    // Two bands minus the one partition between them: the interior's whole depth is rooms.
+    // The primary space keeps the depth its room kind requires — the bands split what is
+    // left, never the primary's minimum.
+    val openSum = D - 2
+    val primaryMinD = maxOf(
+        RoomRequirements.forKind(prof.frontGreat).minD,
+        RoomRequirements.forKind(prof.upperGreat).minD,
+    )
+    val hi = minOf(prof.bandMax, openSum - primaryMinD).coerceAtLeast(1)
+    val lo = maxOf(prof.bandMin, openSum - prof.bandMax).coerceAtMost(hi)
+    val northDepth = rng.int(lo, hi)
+    val southDepth = openSum - northDepth
+    val yHN = y0 + northDepth + 1 // the partition wall between the north rooms and the primary space
+    val y1 = yHN + southDepth + 1
+    val lay = Layout(x0, yHN, yHN + 1, yHN, yHN + 1, x0 + 1, 2) // hall fields unused; the stairs live in the primary space
+
+    // Bay lines for the north rooms and the facade rhythm — spaced so both rooms keep three
+    // usable tiles of width once the partition wall between them is counted.
+    val cuts = ArrayList<Int>()
+    var pos = x0
+    while (x1 - pos > 7) {
+        pos += rng.int(4, min(7, x1 - pos - 4))
+        cuts.add(pos)
+    }
+
+    val ground = Spec(
+        level = 0, x0 = x0, x1 = x1, y0 = y0, y1 = y1, cuts = cuts,
+        dropN = mutableSetOf(), dropS = mutableSetOf(),
+        material = "stone", balconies = mutableListOf(), notches = mutableListOf(),
+    )
+    val lines0 = listOf(x0) + cuts + x1
+    val nb0 = lines0.size - 1
+    val mid = (x0 + x1) / 2.0
+    var front = if (nb0 >= 2) 1 else 0
+    for (i in 1 until nb0) {
+        if (abs((lines0[i] + lines0[i + 1]) / 2.0 - mid) <
+            abs((lines0[front] + lines0[front + 1]) / 2.0 - mid)
+        ) {
+            front = i
+        }
+    }
+    ground.frontBay = front
+    ground.features.add("front door (south)")
+    if (prof.backDoor) {
+        ground.backBay = rng.int(0, nb0 - 1)
+        ground.features.add("back door (north)")
+    }
+    ground.features.add("open plan")
+
+    val specs = ArrayList<Spec>()
+    specs.add(ground)
+    for (n in 1 until nFloors) {
+        specs.add(
+            Spec(
+                level = n, x0 = x0, x1 = x1, y0 = y0, y1 = y1, cuts = cuts,
+                dropN = mutableSetOf(), dropS = mutableSetOf(),
+                material = if (rng.chance(0.85)) "timber" else "stone",
+                balconies = mutableListOf(), notches = mutableListOf(),
+            ),
+        )
+    }
+
+    // The stair block stands at the primary space's west end, identical on every floor.
+    val stairs = Rect(x = x0 + 1, y = yHN + 1, w = 3, h = 2)
+    val floors = ArrayList<FloorPlan>()
+    for (spec in specs) {
+        floors.add(
+            renderOpenFloor(
+                spec, lay, W + 2 * MARGIN, D + 2 * MARGIN, rng, prof,
+                withStairs = nFloors > 1, windowEvery = prof.windowEvery,
+            ),
+        )
+    }
+    return Building(
+        seed = outSeed, attempts = attempts,
+        width = W + 2 * MARGIN, height = D + 2 * MARGIN,
+        floors = floors, stairs = stairs,
+    )
+}
+
+/**
+ * Renders one open-plan floor: shell, a full-width primary space across the front, and north
+ * rooms that each open onto it through one door in the partition. Every room kind is held to
+ * [RoomRequirements]; the generator's retry loop rejects any plan that falls short.
+ */
+private fun renderOpenFloor(
+    spec: Spec,
+    lay: Layout,
+    gridW: Int,
+    gridH: Int,
+    rng: Rng,
+    prof: ArchProfile,
+    withStairs: Boolean,
+    windowEvery: Int,
+): FloorPlan {
+    val g = Array(gridH) { IntArray(gridW) }
+    fun set(x: Int, y: Int, t: Int) {
+        if (x < 0 || y < 0 || x >= gridW || y >= gridH) {
+            throw IndexOutOfBoundsException("tile ($x,$y) is outside the grid")
+        }
+        g[y][x] = t
+    }
+
+    val x0 = spec.x0
+    val x1 = spec.x1
+    val y0 = spec.y0
+    val y1 = spec.y1
+    val partY = lay.yHN
+    val lines = listOf(x0) + spec.cuts + x1
+    val nb = lines.size - 1
+    fun center(i: Int): Int = (lines[i] + lines[i + 1]) / 2
+
+    // Shell and the one partition wall between the north rooms and the primary space.
+    for (y in y0..y1) {
+        for (x in x0..x1) {
+            set(x, y, if (x == x0 || x == x1 || y == y0 || y == y1) Tile.WALL else Tile.FLOOR)
+        }
+    }
+    for (x in x0..x1) set(x, partY, Tile.WALL)
+
+    // Timber frame: posts on every bay line across facade and partition rows.
+    for (x in lines) {
+        for (row in intArrayOf(y0, partY, y1)) set(x, row, Tile.BEAM)
+    }
+
+    // Partitions between the north rooms.
+    for (c in spec.cuts) {
+        for (y in y0 + 1 until partY) set(c, y, Tile.WALL)
+    }
+
+    // The stair block, at the primary space's west end, identical on every floor.
+    if (withStairs) {
+        for (y in partY + 1 until partY + 3) {
+            for (x in lay.stairX until lay.stairX + 3) set(x, y, Tile.STAIRS)
+        }
+    }
+
+    // Windows: one per bay on both facades (or every Nth bay, per profile), plus the west wall.
+    for (i in 0 until nb) {
+        if (i % windowEvery == 0) {
+            set(center(i), y0, Tile.WINDOW)
+            set(center(i), y1, Tile.WINDOW)
+        }
+    }
+    set(x0, partY + 1, Tile.WINDOW)
+
+    // Ground floor entrances: one deliberate front door, a back door only where the
+    // profile's work justifies one.
+    if (spec.level == 0) {
+        set(center(spec.frontBay), y1, Tile.DOOR)
+        if (prof.backDoor) set(center(spec.backBay), y0, Tile.DOOR)
+    }
+
+    // Rooms: the primary space spans the front; each north room opens straight onto it.
+    val rooms = ArrayList<Room>()
+    val primaryRect = Rect(x = x0 + 1, y = partY + 1, w = x1 - x0 - 1, h = y1 - partY - 1)
+    rooms.add(
+        Room(
+            id = 0,
+            floor = spec.level,
+            kind = if (spec.level == 0) prof.frontGreat else prof.upperGreat,
+            band = "south",
+            rect = primaryRect,
+            usableTiles = RoomRequirements.usableTiles(g, primaryRect),
+        ),
+    )
+
+    fun groups(): List<Pair<Int, Int>> {
+        val out = ArrayList<Pair<Int, Int>>()
+        for (i in 0 until nb) out.add(i to i)
+        return out
+    }
+    val full = if (spec.level == 0) prof.groundNorth else prof.upper
+    val head = if (spec.level == 0 && prof.backRoom in full) listOf(prof.backRoom) else emptyList()
+    val rest = full.filter { it !in head }
+    // The pool is authored in priority order: the working room (kitchen) first, then the
+    // sleeping room, then storage in a shuffled tail — a home always sleeps where it cooks.
+    val firstRest = rest.firstOrNull()
+    val pool = rng.shuffle(rest.drop(1))
+    var k = 0
+    for ((gs, ge) in groups()) {
+        val rect = Rect(x = lines[gs] + 1, y = y0 + 1, w = lines[ge + 1] - lines[gs] - 1, h = partY - y0 - 1)
+        val kind = when {
+            gs < head.size -> head[gs]
+            gs == head.size && firstRest != null -> firstRest
+            else -> pool[k++ % pool.size]
+        }
+        val dx = center(gs).coerceIn(lines[gs] + 1, lines[ge + 1] - 1)
+        set(dx, partY, Tile.DOOR)
+        rooms.add(
+            Room(
+                id = rooms.size,
+                floor = spec.level,
+                kind = kind,
+                band = "north",
+                rect = rect,
+                usableTiles = RoomRequirements.usableTiles(g, rect),
+            ),
+        )
+    }
+
+    return FloorPlan(
+        level = spec.level,
+        tiles = g,
+        rect = Rect(x = x0, y = y0, w = x1 - x0 + 1, h = y1 - y0 + 1),
+        material = spec.material,
+        rooms = rooms,
+        features = spec.features,
+    )
+}
+
 private fun renderFloor(
     spec: Spec,
     lay: Layout,
@@ -465,10 +733,11 @@ private fun renderFloor(
     }
     set(x0, yh0, Tile.WINDOW)
 
-    // Ground floor entrances
+    // Ground floor entrances: one front door; a back door only where the profile's work
+    // justifies one — an ordinary home does not grow doorways by default.
     if (spec.level == 0) {
         set(center(spec.frontBay), y1, Tile.DOOR)
-        set(center(spec.backBay), y0, Tile.DOOR)
+        if (prof.backDoor) set(center(spec.backBay), y0, Tile.DOOR)
     }
 
     // Rooms + their doors into the hall
@@ -513,18 +782,20 @@ private fun renderFloor(
                 else -> pool[k++ % pool.size]
             }
 
+            val roomRect = Rect(
+                x = lines[gs] + 1,
+                y = ya,
+                w = lines[ge + 1] - lines[gs] - 1,
+                h = yb - ya + 1,
+            )
             rooms.add(
                 Room(
                     id = rooms.size,
                     floor = spec.level,
                     kind = kind,
                     band = band,
-                    rect = Rect(
-                        x = lines[gs] + 1,
-                        y = ya,
-                        w = lines[ge + 1] - lines[gs] - 1,
-                        h = yb - ya + 1,
-                    ),
+                    rect = roomRect,
+                    usableTiles = RoomRequirements.usableTiles(g, roomRect),
                 ),
             )
         }
@@ -532,10 +803,11 @@ private fun renderFloor(
     addBand("north")
     addBand("south")
 
-    // Occasional connecting doors between neighbouring rooms
+    // Connecting doors between neighbouring rooms — a profile trait, not a dice roll of the
+    // style. Ordinary homes get none: doors grow only between meaningful spaces.
     for (c in spec.cuts) {
-        if (c !in spec.dropN && rng.chance(0.3)) set(c, yHN - 1, Tile.DOOR)
-        if (c !in spec.dropS && rng.chance(0.3)) set(c, yHS + 1, Tile.DOOR)
+        if (c !in spec.dropN && rng.chance(prof.connectorChance)) set(c, yHN - 1, Tile.DOOR)
+        if (c !in spec.dropS && rng.chance(prof.connectorChance)) set(c, yHS + 1, Tile.DOOR)
     }
 
     // Setback: the roof of the floor below becomes a railed terrace
@@ -703,6 +975,35 @@ fun validateBuilding(b: Building, prof: ArchProfile = ArchitecturalProfiles.DEFA
             }
         }
 
+        // Every doorway must open onto something: a door walled in on both sides along its
+        // axis is a redundant or sealed opening, not a connection.
+        for (y in g.indices) {
+            for (x in g[y].indices) {
+                if (g[y][x] != Tile.DOOR) continue
+                val opens = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1).any { (dx, dy) ->
+                    g.getOrNull(y + dy)?.getOrNull(x + dx)?.let(::isWalkable) == true
+                }
+                if (!opens) issues.add("floor $n: a doorway at ($x,$y) opens into solid wall")
+            }
+        }
+
+        // Architectural quality: every room must be usable — wide enough, deep enough and
+        // roomy enough for what it claims to be, per [RoomRequirements]. A plan that cannot
+        // meet the minimums is rejected and regenerated, never quietly shrunk.
+        for (room in floor.rooms) {
+            val req = RoomRequirements.forKind(room.kind)
+            if (room.rect.w < req.minW) {
+                issues.add("floor $n: the ${room.kind} is ${room.rect.w} tiles wide, a usable one needs ${req.minW}")
+            }
+            if (room.rect.h < req.minD) {
+                issues.add("floor $n: the ${room.kind} is only ${room.rect.h} tiles deep, a usable one needs ${req.minD}")
+            }
+            val usable = RoomRequirements.usableTiles(g, room.rect)
+            if (usable < req.minArea) {
+                issues.add("floor $n: the ${room.kind} holds only $usable usable tiles, it needs ${req.minArea}")
+            }
+        }
+
         // Every walkable tile on the floor must be reachable — from the stairs when there
         // are any, otherwise (single-floor buildings) from anywhere on the floor.
         var start: Pair<Int, Int>? = null
@@ -738,12 +1039,30 @@ fun validateBuilding(b: Building, prof: ArchProfile = ArchitecturalProfiles.DEFA
             if (seen.size != walkable) {
                 issues.add("floor $n: ${walkable - seen.size} walkable tiles are unreachable")
             }
+            // And no room may stand cut off from the life of the floor: each one needs at
+            // least one reachable tile of its own.
+            for (room in floor.rooms) {
+                var reached = false
+                for (y in room.rect.y until room.rect.y + room.rect.h) {
+                    for (x in room.rect.x until room.rect.x + room.rect.w) {
+                        if (x >= 0 && y >= 0 && y < g.size && x < g[0].size &&
+                            isWalkable(g[y][x]) && key(x, y) in seen
+                        ) {
+                            reached = true
+                            break
+                        }
+                    }
+                    if (reached) break
+                }
+                if (!reached) issues.add("floor $n: the ${room.kind} cannot be reached")
+            }
         }
     }
 
-    // The ground floor needs a way in from outside
+    // The ground floor needs a way in from outside — and no more doors than the building's
+    // work justifies: an ordinary home keeps one entrance.
     val gf = b.floors[0].tiles
-    var entrance = false
+    var exteriorDoors = 0
     for (y in gf.indices) {
         for (x in gf[y].indices) {
             if (gf[y][x] == Tile.DOOR &&
@@ -751,11 +1070,17 @@ fun validateBuilding(b: Building, prof: ArchProfile = ArchitecturalProfiles.DEFA
                     gf.getOrNull(y + dy)?.getOrNull(x + dx) == Tile.EMPTY
                 }
             ) {
-                entrance = true
+                exteriorDoors++
             }
         }
     }
-    if (!entrance) issues.add("ground floor has no exterior door")
+    if (exteriorDoors == 0) issues.add("ground floor has no exterior door")
+    if (exteriorDoors > prof.maxExteriorDoors) {
+        issues.add(
+            "ground floor has $exteriorDoors exterior doors, " +
+                "a ${prof.name} may have at most ${prof.maxExteriorDoors}",
+        )
+    }
 
     return issues
 }

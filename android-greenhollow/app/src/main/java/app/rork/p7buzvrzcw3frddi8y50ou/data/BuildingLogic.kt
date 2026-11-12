@@ -122,8 +122,13 @@ data class RoomMeta(
     val zone: String,
     /** "", "public", "private" or "staff_only". */
     val access: String,
-    /** World-space bounds when known (generated rooms always; authored rooms when declared). */
+    /** World-space bounds when known (generated rooms always; authored rooms when declared).
+     *  Generated rooms report interior-local coordinates, matching the interior instance's
+     *  collision and mesh space (x east, z south, the room's least corner first). */
     val bounds: Bounds?,
+    /** Usable floor tiles inside the room: walls, posts and doorways excluded.
+     *  Authored rooms report 0 — no tile grid exists to count. */
+    val usableTiles: Int,
 )
 
 /**
@@ -165,6 +170,11 @@ class BuildingDirectory(private val content: ContentRegistry) {
             if (plan != null) {
                 for (floor in plan.floors) {
                     for (room in floor.rooms) {
+                        // Interior-local geometry, the same space the interior instance and
+                        // its collision live in: tile (tx, ty) centres on
+                        // ((tx - (plan.width-1)/2) * TILE_SIZE, ((plan.height-1)/2 - ty) * TILE_SIZE).
+                        val bx = (room.rect.x - (plan.width - 1) / 2f) * TILE_SIZE
+                        val bz = ((plan.height - 1) / 2f - room.rect.y - room.rect.h + 1) * TILE_SIZE
                         rooms += RoomMeta(
                             ref = "${def.id}#f${floor.level}#r${room.id}",
                             floor = floor.level,
@@ -172,11 +182,12 @@ class BuildingDirectory(private val content: ContentRegistry) {
                             zone = BuildingTaxonomy.zoneForPurpose(room.kind),
                             access = "",
                             bounds = Bounds(
-                                room.rect.x * TILE_SIZE,
-                                room.rect.y * TILE_SIZE,
+                                bx,
+                                bz,
                                 room.rect.w * TILE_SIZE,
                                 room.rect.h * TILE_SIZE,
                             ),
+                            usableTiles = room.usableTiles,
                         )
                     }
                 }
@@ -190,6 +201,7 @@ class BuildingDirectory(private val content: ContentRegistry) {
                     zone = r.zone,
                     access = r.access,
                     bounds = r.bounds,
+                    usableTiles = 0, // authored rooms declare their own bounds; no tiles to count
                 )
             }
         }

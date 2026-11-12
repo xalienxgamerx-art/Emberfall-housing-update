@@ -18,7 +18,22 @@ package app.rork.p7buzvrzcw3frddi8y50ou.procgen
  * Independent of the exterior profile, a building may declare interior-only configuration
  * (see [BuildingDef]'s int* fields): a compact tavern shell around a spacious common room,
  * or a cottage interior a little roomier than its walls. Same profiles, separate cache key.
+ *
+ * Quality pass: profiles also choose a layout strategy ([LayoutStyle]) and carry a doorway
+ * budget. Every profiled building's rooms are held to [RoomRequirements]' minimums — a
+ * footprint too small for real rooms changes strategy rather than shrinking rooms.
  */
+
+/** How the ground plan is organised; the generator shapes tiles around this choice. */
+enum class LayoutStyle {
+    /** Wall | rooms | central hall | rooms | wall — the classic timber-frame plan. */
+    CENTRAL_HALL,
+
+    /** One primary living space with the other rooms opening straight off it — no hall.
+     *  For small homes where a passage would eat the rooms it serves. */
+    OPEN_PLAN,
+}
+
 data class ArchProfile(
     val name: String,
     /** Floor-count range the generator draws from. */
@@ -57,6 +72,19 @@ data class ArchProfile(
     val windowEvery: Int = 1,
     /** Room kinds that must appear somewhere in the plan, or generation retries. */
     val required: List<String> = emptyList(),
+    // ----------------------------------------------------- quality-pass traits
+    /** The layout strategy the generator shapes the plan around. */
+    val style: LayoutStyle = LayoutStyle.CENTRAL_HALL,
+    /** A compact declared footprint may fall back to an open plan when a hall leaves no
+     *  room for two real bands. Off by default: legacy profiles keep their plans. */
+    val allowOpenPlanFallback: Boolean = false,
+    /** Residences keep one door; service buildings justify a second at the back. */
+    val backDoor: Boolean = true,
+    /** Chance a partition between neighbouring rooms gains a connecting door. Homes get 0:
+     *  no random connecting doors, only doors between meaningful spaces. */
+    val connectorChance: Double = 0.3,
+    /** Sanity cap on ground-floor exterior doors, enforced by validation. */
+    val maxExteriorDoors: Int = 2,
 )
 
 object ArchitecturalProfiles {
@@ -86,17 +114,27 @@ object ArchitecturalProfiles {
         groundOpenChance = 0.7,
     )
 
+    /**
+     * A cottage is one warm room with the working and sleeping spaces off it: open plan, a
+     * single front door, no connecting-door lottery, and no band shallower than two tiles —
+     * a one-tile-deep room is a corridor with delusions, not a room.
+     */
     val COTTAGE = ArchProfile(
         name = "cottage",
         floorsMin = 1, floorsMax = 2,
-        wMin = 8, wMax = 11,
+        // Nine wide at the least: a six-tile interior cannot hold a kitchen and a bedroom
+        // side by side, and a home that cannot sleep where it cooks is no home.
+        wMin = 9, wMax = 11,
         dMin = 7, dMax = 9,
-        hallW = 1, bandMin = 1, bandMax = 2,
-        groundNorth = listOf("pantry", "larder"),
-        groundSouth = listOf("storeroom", "buttery"),
+        hallW = 1, bandMin = 2, bandMax = 3,
+        style = LayoutStyle.OPEN_PLAN,
+        groundNorth = listOf("kitchen", "bedchamber", "pantry", "larder"),
+        groundSouth = listOf("storeroom", "buttery"), // rarely drawn: the primary space spans the front
         upper = listOf("bedchamber", "study", "nursery"),
         frontGreat = "parlor", frontSingle = "parlor", backRoom = "kitchen",
-        groundOpenChance = 0.9,
+        upperGreat = "bedchamber",
+        required = listOf("parlor", "kitchen", "bedchamber"),
+        backDoor = false, connectorChance = 0.0, maxExteriorDoors = 1,
         allowFeatures = false,
     )
 
@@ -105,7 +143,8 @@ object ArchitecturalProfiles {
         floorsMin = 2, floorsMax = 3,
         wMin = 8, wMax = 12,
         dMin = 10, dMax = 13,
-        hallW = 1, bandMin = 1, bandMax = 3,
+        hallW = 1, bandMin = 2, bandMax = 3,
+        allowOpenPlanFallback = true,
         groundNorth = listOf("pantry", "storeroom", "scullery"),
         groundSouth = listOf("stockroom", "office"),
         upper = listOf("bedchamber", "guest chamber", "study", "nursery"),
@@ -133,7 +172,8 @@ object ArchitecturalProfiles {
         floorsMin = 1, floorsMax = 2,
         wMin = 13, wMax = 18,
         dMin = 10, dMax = 12,
-        hallW = 1, bandMin = 1, bandMax = 2,
+        hallW = 1, bandMin = 2, bandMax = 2,
+        allowOpenPlanFallback = true,
         groundNorth = listOf("storeroom", "armory"),
         groundSouth = listOf("storeroom"),
         upper = listOf("bedchamber", "solar", "study"),
