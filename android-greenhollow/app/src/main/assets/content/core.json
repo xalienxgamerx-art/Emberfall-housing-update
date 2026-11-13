@@ -1798,24 +1798,23 @@
       "zones": [
         "residential"
       ],
-      "x": 22.3,
-      "z": -30.7,
+      "x": 33.5,
+      "z": -46.1,
       "w": 9,
       "d": 8,
       "h": 3.8,
       "wall": "#C2A678",
       "roof": "#5E3A28",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "inn",
       "name": "The Gilded Stag",
       "type": "inn",
       "classification": "hospitality",
-      "x": 35.3,
-      "z": -18.8,
+      "x": 53.0,
+      "z": -28.2,
       "w": 13,
       "d": 10,
       "h": 5.6,
@@ -1890,8 +1889,8 @@
         "commercial",
         "residential"
       ],
-      "x": 39.0,
-      "z": 1.0,
+      "x": 58.5,
+      "z": 1.5,
       "w": 10,
       "d": 8,
       "h": 4.2,
@@ -1934,16 +1933,15 @@
       "zones": [
         "residential"
       ],
-      "x": 33.6,
-      "z": 18.6,
+      "x": 50.4,
+      "z": 27.9,
       "w": 8,
       "d": 7,
       "h": 3.6,
       "wall": "#C8AE82",
       "roof": "#6B3F2A",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "house_se",
@@ -1953,16 +1951,15 @@
       "zones": [
         "residential"
       ],
-      "x": 22.3,
-      "z": 31.5,
+      "x": 33.5,
+      "z": 47.3,
       "w": 10,
       "d": 8,
       "h": 3.8,
       "wall": "#BFA273",
       "roof": "#7A5230",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "house_sw",
@@ -1972,16 +1969,15 @@
       "zones": [
         "residential"
       ],
-      "x": -22.3,
-      "z": 31.5,
+      "x": -33.5,
+      "z": 47.3,
       "w": 8,
       "d": 7,
       "h": 3.5,
       "wall": "#A88E66",
       "roof": "#4A3526",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "apothecary",
@@ -1991,8 +1987,8 @@
       "zones": [
         "commercial"
       ],
-      "x": -33.6,
-      "z": 18.6,
+      "x": -50.4,
+      "z": 27.9,
       "w": 8,
       "d": 7,
       "h": 4.4,
@@ -2013,8 +2009,8 @@
         "workshop",
         "storage"
       ],
-      "x": -39.0,
-      "z": 1.0,
+      "x": -58.5,
+      "z": 1.5,
       "w": 11,
       "d": 8,
       "h": 4.0,
@@ -2033,16 +2029,15 @@
       "zones": [
         "residential"
       ],
-      "x": -34.6,
-      "z": -18.2,
+      "x": -51.9,
+      "z": -27.3,
       "w": 10,
       "d": 7,
       "h": 3.6,
       "wall": "#B59E78",
       "roof": "#5A3D2C",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "house_nw",
@@ -2052,16 +2047,15 @@
       "zones": [
         "residential"
       ],
-      "x": -22.3,
-      "z": -30.7,
+      "x": -33.5,
+      "z": -46.1,
       "w": 8,
       "d": 7,
       "h": 3.8,
       "wall": "#C6AC80",
       "roof": "#6E4630",
       "procedural": true,
-      "profile": "cottage",
-      "genFloors": 2
+      "profile": "cottage"
     },
     {
       "id": "manor",
@@ -2072,8 +2066,8 @@
         "residential",
         "public"
       ],
-      "x": -52.0,
-      "z": -48.0,
+      "x": -78.0,
+      "z": -72.0,
       "w": 19,
       "d": 13,
       "h": 12.0,
@@ -2336,8 +2330,8 @@
       "id": "hilde_cot",
       "name": "the cot at Hilde's door",
       "kind": "bed",
-      "x": 22.0,
-      "z": 25.0,
+      "x": 33.0,
+      "z": 37.5,
       "sleep": true,
       "owner": "hilde",
       "accessAffinity": 50,
@@ -2380,8 +2374,8 @@
       "id": "bram_scrap_bin",
       "name": "Bram's scrap bin",
       "kind": "container",
-      "x": -33.5,
-      "z": 5.5,
+      "x": -50.3,
+      "z": 8.3,
       "respawnHours": 96,
       "owner": "bram",
       "accessAffinity": 60,
@@ -2449,8 +2443,8 @@
       "id": "herbal_lectern",
       "name": "Mira's herbal",
       "kind": "book",
-      "x": -27.8,
-      "z": 18.8,
+      "x": -41.7,
+      "z": 28.2,
       "text": "A COMMON HERBAL, copied in Mira's hand and chained to the lectern.\n\nYARROW. White flower, feathered leaf. Crush and bind to a wound. Best gathered where the ground stays wet.\n\nThree sprigs steeped overnight make one draught. Bring them fresh and I will do the steeping.\n\nDo not eat anything from this book on the strength of a drawing.",
       "rumour": "river_yarrow",
       "skillXp": {

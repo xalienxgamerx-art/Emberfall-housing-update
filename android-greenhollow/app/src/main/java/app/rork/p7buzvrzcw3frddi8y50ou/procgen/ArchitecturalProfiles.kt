@@ -123,9 +123,10 @@ object ArchitecturalProfiles {
         name = "cottage",
         floorsMin = 1, floorsMax = 2,
         // Nine wide at the least: a six-tile interior cannot hold a kitchen and a bedroom
-        // side by side, and a home that cannot sleep where it cooks is no home.
-        wMin = 9, wMax = 11,
-        dMin = 7, dMax = 9,
+        // side by side, and a home that cannot sleep where it cooks is no home. Wide enough
+        // at the most that two neighbouring homes never stand the same shape.
+        wMin = 9, wMax = 13,
+        dMin = 7, dMax = 10,
         hallW = 1, bandMin = 2, bandMax = 3,
         style = LayoutStyle.OPEN_PLAN,
         groundNorth = listOf("kitchen", "bedchamber", "pantry", "larder"),

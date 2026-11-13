@@ -267,6 +267,13 @@ object WorldMesh {
         val clearings = ArrayList<FloatArray>()
         content.spots.values.forEach { clearings += floatArrayOf(it.x, it.z, 6f) }
         content.resources.values.forEach { clearings += floatArrayOf(it.x, it.z, 2.6f) }
+        // And each building keeps its own yard: no tree grows into a house or hard against
+        // its walls, wherever in the forest the village's clearing was cut.
+        for (b in content.buildings.values) {
+            val fp = if (b.procedural) BuildingCache.footprint(b) else null
+            val half = maxOf(fp?.first ?: b.w, fp?.second ?: b.d) / 2f
+            clearings += floatArrayOf(b.x, b.z, half + 4f)
+        }
         clearings += floatArrayOf(-6.5f, 116f, 5f)
         for (t in Terrain.trees(preset.trees, clearings)) tree(m, t.x, t.z, t.scale, t.kind, t.tint)
         return m

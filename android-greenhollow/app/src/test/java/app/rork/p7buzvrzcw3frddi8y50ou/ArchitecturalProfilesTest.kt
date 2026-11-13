@@ -120,7 +120,7 @@ class ArchitecturalProfilesTest {
         for (seed in 0L..29L) {
             val b = generate(ArchitecturalProfiles.COTTAGE, seed)
             val (w, d) = footprint(b)
-            assertTrue("cottage seed $seed grew ${w}x$d", w <= 12 && d <= 10)
+            assertTrue("cottage seed $seed grew ${w}x$d", w <= 14 && d <= 11)
             assertTrue("cottage seed $seed stood ${b.floors.size} floors", b.floors.size <= 2)
         }
     }

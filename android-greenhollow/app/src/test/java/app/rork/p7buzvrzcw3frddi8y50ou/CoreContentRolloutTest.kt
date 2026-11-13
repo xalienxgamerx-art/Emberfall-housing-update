@@ -164,6 +164,57 @@ class CoreContentRolloutTest {
         assertEquals("some core buildings failed to grow under other seeds", 0, fallbacks)
     }
 
+    // ---- the village has room, and its houses differ -----------------------------------
+
+    /** An oriented footprint box: centre, half-extents along the local x/z, and local axes in world space. */
+    private class Yard(val cx: Float, val cz: Float, val hx: Float, val hz: Float, val ux: Float, val uz: Float, val vx: Float, val vz: Float)
+
+    /** The oriented box a building stands on, rotated to face the square like the renderer does. */
+    private fun yardOf(def: BuildingDef): Yard {
+        val fp = if (def.procedural) BuildingCache.footprint(def) else null
+        val w = (fp?.first ?: def.w) / 2f
+        val d = (fp?.second ?: def.d) / 2f
+        val r = Math.sqrt((def.x * def.x + def.z * def.z).toDouble()).coerceAtLeast(0.01)
+        val c = (def.z / r).toFloat(); val s = (def.x / r).toFloat()
+        return Yard(def.x, def.z, w, d, c, -s, s, c)
+    }
+
+    private fun overlap(a: Yard, b: Yard): Boolean {
+        val dx = b.cx - a.cx; val dz = b.cz - a.cz
+        fun clear(ax: Float, az: Float, p: Yard, q: Yard) =
+            Math.abs(dx * ax + dz * az) >
+                (p.hx * Math.abs(p.ux * ax + p.uz * az) + p.hz * Math.abs(p.vx * ax + p.vz * az)) +
+                (q.hx * Math.abs(q.ux * ax + q.uz * az) + q.hz * Math.abs(q.vx * ax + q.vz * az))
+        val axes = sequenceOf(a.ux to a.uz, a.vx to a.vz, b.ux to b.uz, b.vx to b.vz)
+        // One separating axis is enough for disjoint boxes.
+        return axes.none { (ax, az) -> clear(ax, az, a, b) }
+    }
+
+    @Test
+    fun `no two core buildings stand on each other's ground`() {
+        val yards = registry.buildings.values.map { it.id to yardOf(it) }
+        for (i in yards.indices) for (j in i + 1 until yards.size) {
+            val (a, ya) = yards[i]; val (b, yb) = yards[j]
+            assertTrue("$a and $b overlap", !overlap(ya, yb))
+            // And neither sits on the village square.
+            for (y in listOf(ya, yb)) {
+                val lx = -y.cx * y.ux + -y.cz * y.uz
+                val lz = -y.cx * y.vx + -y.cz * y.vz
+                assertTrue("$a covers the square", Math.abs(lx) > y.hx || Math.abs(lz) > y.hz)
+            }
+        }
+    }
+
+    @Test
+    fun `the six core homes do not stand identical`() {
+        val homes = listOf("house_ne", "house_e", "house_se", "house_sw", "house_w", "house_nw")
+            .map { BuildingCache.get(registry.buildings.getValue(it))!! }
+        val floors = homes.map { it.floors.size }.toSet()
+        val widths = homes.map { it.width }.toSet()
+        assertTrue("every home grew $floors floors — a village, not a barracks", floors.size >= 2)
+        assertTrue("every home grew ${widths} tiles wide", widths.size >= 2)
+    }
+
     // ---- the guard rail ----------------------------------------------------------------
 
     @Test

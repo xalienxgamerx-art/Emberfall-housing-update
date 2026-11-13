@@ -227,9 +227,11 @@ class BuildingQualityTest {
                     exterior || y == partitionRow,
                 )
             }
+            // A home's doorway budget grows with its rooms: one door each, plus the
+            // entrance and at most one spare — a bigger cottage earns more doors.
             assertTrue(
                 "cottage seed $seed grew ${doorCount(b)} doors total — too many for a home",
-                doorCount(b) <= 6,
+                doorCount(b) <= b.floors.sumOf { it.rooms.size } + 2,
             )
         }
     }
