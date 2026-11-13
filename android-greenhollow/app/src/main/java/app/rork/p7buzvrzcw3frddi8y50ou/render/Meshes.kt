@@ -1,9 +1,7 @@
 package app.rork.p7buzvrzcw3frddi8y50ou.render
 
-import app.rork.p7buzvrzcw3frddi8y50ou.Diagnostics
 import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ContentRegistry
-import app.rork.p7buzvrzcw3frddi8y50ou.data.hexToRgb
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Terrain
 import kotlin.math.abs
@@ -23,6 +21,10 @@ class MeshBuilder(initial: Int = 1 shl 18) {
     var data = FloatArray(initial)
         private set
     var size = 0
+        private set
+
+    /** Boxes emitted so far — the object count a naive per-primitive renderer would manage. */
+    var boxCount = 0
         private set
 
     private var ox = 0f
@@ -54,6 +56,9 @@ class MeshBuilder(initial: Int = 1 shl 18) {
     fun upward() {
         useHint = false
     }
+
+    /** Raw append with no transform — used when copying already-baked geometry. */
+    fun append(x: Float, y: Float, z: Float, nx: Float, ny: Float, nz: Float, r: Float, g: Float, b: Float) = put(x, y, z, nx, ny, nz, r, g, b)
 
     private fun put(x: Float, y: Float, z: Float, nx: Float, ny: Float, nz: Float, r: Float, g: Float, b: Float) {
         if (size + STRIDE_FLOATS > data.size) data = data.copyOf(data.size * 2)
@@ -108,6 +113,7 @@ class MeshBuilder(initial: Int = 1 shl 18) {
 
     /** Axis-aligned (in local space) box given its centre and half sizes. */
     fun box(cx: Float, cy: Float, cz: Float, ex: Float, ey: Float, ez: Float, r: Float, g: Float, b: Float) {
+        boxCount++
         around(cx, cy, cz)
         val x0 = cx - ex; val x1 = cx + ex
         val y0 = cy - ey; val y1 = cy + ey
@@ -136,6 +142,26 @@ class MeshBuilder(initial: Int = 1 shl 18) {
         }
     }
 
+    /**
+     * Appends this mesh's vertices into [dst], transformed by the same yaw-only transform
+     * [place] applies: a baked local-space model blits exactly where it was baked, glow
+     * encoding (doubled normals) preserved. Positions and normals transform; colours copy.
+     */
+    fun blitInto(dst: MeshBuilder, ox: Float, oy: Float, oz: Float, yaw: Float) {
+        val c = cos(yaw); val s = sin(yaw)
+        var i = 0
+        while (i + STRIDE_FLOATS <= size) {
+            val x = data[i]; val y = data[i + 1]; val z = data[i + 2]
+            val nx = data[i + 3]; val ny = data[i + 4]; val nz = data[i + 5]
+            dst.append(
+                ox + x * c + z * s, oy + y, oz - x * s + z * c,
+                nx * c + nz * s, ny, -nx * s + nz * c,
+                data[i + 6], data[i + 7], data[i + 8],
+            )
+            i += STRIDE_FLOATS
+        }
+    }
+
     /** Gable roof with its ridge along local x. */
     fun gable(ex: Float, ez: Float, y0: Float, rise: Float, r: Float, g: Float, b: Float) {
         around(0f, y0, 0f)
@@ -156,11 +182,19 @@ class GraphicsPreset(val cell: Float, val trees: Int, val fog: Float, val scale:
     }
 }
 
-/** Builds the single static batch that holds the land, the village and the woods. */
+/**
+ * Builds the single static batch that holds the land, the village and the woods. Every
+ * building enters it as one baked combined model from [BuildingModels] — the world batch is
+ * the composition of those models and the land, never the keeper of their structure.
+ */
 object WorldMesh {
     private var cacheKey: Any? = null
     private var cacheLevel = -1
     private var cache: MeshBuilder? = null
+
+    /** Bumped on every rebuild or invalidation; the renderer compares it to re-upload. */
+    var epoch = 0L
+        private set
 
     @Synchronized
     fun get(content: ContentRegistry, level: Int): MeshBuilder {
@@ -170,7 +204,19 @@ object WorldMesh {
         cache = built
         cacheKey = content
         cacheLevel = level
+        epoch++
         return built
+    }
+
+    /**
+     * Drops the composed batch so the next frame rebuilds it from the (possibly rebaked)
+     * building models. Safe to call any time; the structure in [BuildingCache] is untouched.
+     */
+    @Synchronized
+    fun invalidate() {
+        cache = null
+        cacheKey = null
+        epoch++
     }
 
     private fun groundColor(x: Float, z: Float, h: Float, slope: Float, out: FloatArray) {
@@ -248,19 +294,17 @@ object WorldMesh {
             m.tri(0f, 1.46f, 0f, cos(a0) * 29f, 1.44f, sin(a0) * 29f, cos(a1) * 29f, 1.44f, sin(a1) * 29f, 0.56f + k, 0.44f + k, 0.30f + k)
         }
 
+        // Each building enters the batch as one baked combined model: grown from its
+        // structural plan, or — when no plan could be grown and the failure was recorded —
+        // from its hand-authored shell, so no building ever vanishes.
         for (b in content.buildings.values) {
-            // A procedural building is grown from its tile plan into the same static batch;
-            // if generation ever fails, it falls back to the simple box so no building
-            // vanishes — and the fallback is written down, never swallowed silently.
-            if (b.procedural && BuildingMesh.emit(m, b)) continue
-            building(m, b)
-            if (b.procedural) {
-                val why = BuildingCache.summaries[b.id]?.problems?.take(160) ?: "no plan was grown"
-                Diagnostics.record(
-                    "procedural",
-                    "The building '${b.name}' fell back to its hand-authored shell because no plan could be grown for it: $why",
-                )
+            val model = BuildingModels.exterior(b)
+            if (model != null) {
+                model.blit(m, b.x, b.z, atan2(b.x, b.z))
+                continue
             }
+            val shell = BuildingMesh.bakeShellLocal(b)
+            shell.blitInto(m, b.x, Terrain.height(b.x, b.z), b.z, atan2(b.x, b.z))
         }
         roadside(m)
 
@@ -300,64 +344,6 @@ object WorldMesh {
             m.box(0f, 3.3f * s, 0f, 1.5f * s, 1.0f * s, 1.4f * s, r, g, b)
             m.box(0.3f * s, 4.4f * s, -0.2f * s, 1.0f * s, 0.7f * s, 1.0f * s, r * 1.08f, g * 1.08f, b * 1.05f)
             m.box(-0.9f * s, 2.9f * s, 0.7f * s, 0.8f * s, 0.6f * s, 0.8f * s, r * 0.9f, g * 0.9f, b * 0.9f)
-        }
-    }
-
-    private fun building(m: MeshBuilder, b: BuildingDef) {
-        val y = Terrain.height(b.x, b.z)
-        val yaw = atan2(b.x, b.z)
-        m.place(b.x, y, b.z, yaw)
-        if (b.type == "well") {
-            m.box(0f, 0.45f, 0f, 1.1f, 0.45f, 1.1f, 0.55f, 0.54f, 0.52f)
-            m.box(0f, 0.86f, 0f, 0.8f, 0.05f, 0.8f, 0.12f, 0.2f, 0.28f)
-            m.box(-0.95f, 1.5f, 0f, 0.09f, 1.1f, 0.09f, 0.34f, 0.24f, 0.16f)
-            m.box(0.95f, 1.5f, 0f, 0.09f, 1.1f, 0.09f, 0.34f, 0.24f, 0.16f)
-            m.gable(1.4f, 1.1f, 2.5f, 0.7f, 0.42f, 0.25f, 0.17f)
-            return
-        }
-        val wall = hexToRgb(b.wall)
-        val roof = hexToRgb(b.roof)
-        val ex = b.w / 2f
-        val ez = b.d / 2f
-        // Stone footing, plastered walls, timber frame.
-        m.box(0f, 0.2f, 0f, ex + 0.12f, 0.45f, ez + 0.12f, 0.50f, 0.48f, 0.45f)
-        m.box(0f, b.h / 2f + 0.3f, 0f, ex, b.h / 2f, ez, wall[0], wall[1], wall[2])
-        val tr = 0.30f; val tg = 0.21f; val tb = 0.14f
-        for (sx in intArrayOf(-1, 1)) for (sz in intArrayOf(-1, 1)) {
-            m.box(sx * ex, b.h / 2f + 0.3f, sz * ez, 0.16f, b.h / 2f, 0.16f, tr, tg, tb)
-        }
-        m.box(0f, b.h + 0.2f, -ez, ex, 0.12f, 0.1f, tr, tg, tb)
-        m.box(0f, b.h + 0.2f, ez, ex, 0.12f, 0.1f, tr, tg, tb)
-        m.gable(ex + 0.5f, ez + 0.6f, b.h + 0.3f, b.d * 0.42f, roof[0], roof[1], roof[2])
-        m.box(ex * 0.55f, b.h + b.d * 0.36f, ez * 0.2f, 0.4f, b.d * 0.3f, 0.4f, 0.48f, 0.44f, 0.42f)
-        // The door looks onto the square (local -z).
-        m.box(0f, 1.25f, -ez - 0.03f, 0.6f, 1.0f, 0.06f, 0.27f, 0.17f, 0.10f)
-        m.box(0f, 0.2f, -ez - 0.7f, 0.9f, 0.14f, 0.6f, 0.52f, 0.50f, 0.47f)
-        m.glow = true
-        val wy = b.h * 0.55f + 0.3f
-        if (ex > 3f) {
-            m.box(-ex * 0.58f, wy, -ez - 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.78f, 0.38f)
-            m.box(ex * 0.58f, wy, -ez - 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.78f, 0.38f)
-        }
-        m.box(-ex - 0.02f, wy, 0f, 0.05f, 0.5f, 0.45f, 1.0f, 0.74f, 0.34f)
-        m.box(ex + 0.02f, wy, 0f, 0.05f, 0.5f, 0.45f, 1.0f, 0.74f, 0.34f)
-        m.box(0f, wy, ez + 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.74f, 0.34f)
-        if (b.type == "smithy") m.box(-ex - 1.6f, 1.0f, -ez * 0.3f, 0.35f, 0.25f, 0.35f, 1.0f, 0.45f, 0.12f)
-        m.glow = false
-        when (b.type) {
-            "smithy" -> {
-                // Open lean-to with the forge and the anvil.
-                m.box(-ex - 1.6f, 0.5f, -ez * 0.3f, 0.8f, 0.5f, 0.8f, 0.42f, 0.40f, 0.39f)
-                m.box(-ex - 1.6f, 0.55f, -ez * 0.3f - 1.9f, 0.45f, 0.3f, 0.22f, 0.20f, 0.20f, 0.22f)
-                m.box(-ex - 3f, 1.4f, -ez * 0.3f - 1.4f, 0.1f, 1.4f, 0.1f, tr, tg, tb)
-                m.box(-ex - 3f, 1.4f, -ez * 0.3f + 1.4f, 0.1f, 1.4f, 0.1f, tr, tg, tb)
-                m.box(-ex - 1.6f, 2.85f, -ez * 0.3f, 1.7f, 0.08f, 1.9f, roof[0] * 0.9f, roof[1] * 0.9f, roof[2] * 0.9f)
-            }
-            "inn", "shop" -> {
-                // Hanging sign beside the door.
-                m.box(1.5f, 2.9f, -ez - 0.6f, 0.06f, 0.06f, 0.6f, tr, tg, tb)
-                m.box(1.5f, 2.4f, -ez - 0.8f, 0.05f, 0.35f, 0.4f, 0.36f, 0.42f, 0.23f)
-            }
         }
     }
 

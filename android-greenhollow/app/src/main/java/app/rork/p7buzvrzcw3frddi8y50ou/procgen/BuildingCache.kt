@@ -33,6 +33,10 @@ object BuildingCache {
     private val cache = HashMap<String, Building>()
     private val interiorCache = HashMap<String, Building>()
 
+    /** Monotonic version per cache key, bumped on every generation and invalidation, so
+     *  derived geometry (baked models) can tell stale from current structure. */
+    private val versions = HashMap<String, Int>()
+
     /** One entry per generated plan, for the diagnostics report. */
     val summaries = LinkedHashMap<String, Summary>()
 
@@ -78,6 +82,12 @@ object BuildingCache {
     private fun key(def: BuildingDef) =
         "${def.id}|${def.genSeed}|${def.genFloors}|${def.genWidth}|${def.genDepth}|${def.profile.trim().lowercase()}"
 
+    /** The plan cache key for [def], exposed for derived-geometry caches that must share it. */
+    fun planKey(def: BuildingDef): String = key(def)
+
+    /** How many times the plan under [def]'s key has been generated or invalidated. */
+    fun version(def: BuildingDef): Int = versions[key(def)] ?: 0
+
     /** The plan for this definition, generated and validated on first ask. Null when it never managed one. */
     fun get(def: BuildingDef): Building? {
         val k = key(def)
@@ -92,6 +102,7 @@ object BuildingCache {
         return try {
             val b = generateBuilding(options(def))
             cache[k] = b
+            versions[k] = (versions[k] ?: 0) + 1
             summaries[def.id] = Summary(def.id, def.name, b.seed, b.floors.size, b.attempts, true, "", b, planProfile(def))
             b
         } catch (err: Throwable) {
@@ -138,12 +149,35 @@ object BuildingCache {
         return try {
             val b = generateBuilding(interiorOptions(def))
             interiorCache[k] = b
+            versions[k] = (versions[k] ?: 0) + 1
             summaries["${def.id} (interior)"] = Summary("${def.id} (interior)", def.name, b.seed, b.floors.size, b.attempts, true, "", b, interiorOptions(def).profile?.name ?: "default")
             b
         } catch (err: Throwable) {
             Diagnostics.record("procedural", "The interior of '${def.name}' could not be generated", err)
             summaries["${def.id} (interior)"] = Summary("${def.id} (interior)", def.name, interiorSeedFor(def), 0, 0, false, err.message ?: "unknown", null, interiorOptions(def).profile?.name ?: "default")
             null
+        }
+    }
+
+    /**
+     * Marks a building's structure stale: its cached plans (exterior and interior) are
+     * dropped and their versions bumped, so the next [get] regenerates deterministically
+     * from the same options and every derived baked model knows to rebake. Never destroys
+     * the authoritative data itself — the plan is a pure function of seed and options.
+     */
+    @Synchronized
+    fun invalidate(buildingId: String) {
+        cache.keys.toList().forEach { k ->
+            if (k.startsWith("$buildingId|")) {
+                cache.remove(k)
+                versions[k] = (versions[k] ?: 0) + 1
+            }
+        }
+        interiorCache.keys.toList().forEach { k ->
+            if (k.startsWith("int|$buildingId|")) {
+                interiorCache.remove(k)
+                versions[k] = (versions[k] ?: 0) + 1
+            }
         }
     }
 

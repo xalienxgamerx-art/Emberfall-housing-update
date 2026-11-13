@@ -42,6 +42,7 @@ class WorldRenderer(
     private var waterVbo = 0
     private var builtFor: Any? = null
     private var builtLevel = -1
+    private var builtEpoch = -1L
 
     private var aPos = 0
     private var aNormal = 0
@@ -133,6 +134,7 @@ class WorldRenderer(
         upload(waterVbo, w.data, w.size)
         builtFor = null
         builtLevel = -1
+        builtEpoch = -1L
         lastNanos = 0L
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
@@ -153,12 +155,15 @@ class WorldRenderer(
 
     private fun ensureWorld(e: GameEngine) {
         val lvl = level
-        if (builtFor === e.content && builtLevel == lvl) return
+        // The epoch moves whenever the world batch was rebuilt or invalidated — a rebaked
+        // building, for instance — so the new geometry is uploaded exactly once.
+        if (builtFor === e.content && builtLevel == lvl && builtEpoch == WorldMesh.epoch) return
         val mesh = WorldMesh.get(e.content, lvl)
         upload(worldVbo, mesh.data, mesh.size)
         worldCount = mesh.vertexCount
         builtFor = e.content
         builtLevel = lvl
+        builtEpoch = WorldMesh.epoch
     }
 
     override fun onDrawFrame(gl: GL10?) {

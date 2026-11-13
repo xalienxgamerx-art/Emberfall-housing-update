@@ -3,6 +3,7 @@ package app.rork.p7buzvrzcw3frddi8y50ou
 import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.renderAscii
+import app.rork.p7buzvrzcw3frddi8y50ou.render.BuildingModels
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
@@ -184,6 +185,12 @@ object Diagnostics {
                 }
             }
         }
+        val bake = BuildingModels.stats()
+        appendLine(
+            "Baked models: ${bake.models} exterior (${bake.combinedObjects} static objects combined, ${bake.vertices} vertices), " +
+                "${bake.interiorBakes} interior bakes",
+        )
+        appendLine("Bake version ${bake.bakeVersion}; rebakes ${bake.rebakes}, invalidations ${bake.invalidations}, bake failures ${bake.failures}")
         appendLine()
         appendLine("PLANS GROWN")
         if (BuildingCache.summaries.isEmpty()) {

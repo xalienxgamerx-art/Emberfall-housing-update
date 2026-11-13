@@ -25,24 +25,42 @@ object InteriorMesh {
     private val CEILING = floatArrayOf(0.58f, 0.53f, 0.43f)
     private val SOLID = intArrayOf(Tile.WALL, Tile.FLOOR, Tile.BEAM, Tile.STAIRS, Tile.DOOR, Tile.WINDOW)
 
-    /** The mesh for one interior instance; [key] is compared by identity, not equals. */
-    class Entry(val key: ActiveInterior, val mesh: MeshBuilder) {
-        val vertexCount get() = mesh.vertexCount
+    /** The baked combined model behind one interior instance; [key] is compared by identity. */
+    class Entry(val key: ActiveInterior, val model: BuildingModels.BakedModel) {
+        val mesh: MeshBuilder get() = model.mesh
+        val vertexCount get() = model.vertexCount
     }
 
     private var cache: Entry? = null
 
-    /** The mesh for the active interior, rebuilt only when a different instance is active. */
+    /**
+     * The active interior's combined model, rebuilt when a different instance becomes
+     * active or the building's structure was invalidated since the bake (stale models are
+     * never served). Unloading the slot never touches the structure or persistent state.
+     */
     @Synchronized
     fun get(inst: ActiveInterior?): Entry? {
         if (inst == null) {
             cache = null
             return null
         }
-        cache?.let { if (it.key === inst) return it }
+        cache?.let {
+            if (it.key === inst &&
+                it.model.bakeVersion == BuildingModels.BAKE_VERSION &&
+                it.model.planVersion == BuildingModels.revision(inst.buildingId)
+            ) {
+                return it
+            }
+        }
+        val model = BuildingModels.bakeInterior(inst) ?: return null
+        return Entry(inst, model).also { cache = it }
+    }
+
+    /** Bakes the interior instance's static architecture into one local-space model. */
+    fun bakeLocal(inst: ActiveInterior): MeshBuilder {
         val m = MeshBuilder(1 shl 18)
         emit(m, inst)
-        return Entry(inst, m).also { cache = it }
+        return m
     }
 
     private fun emit(m: MeshBuilder, inst: ActiveInterior) {

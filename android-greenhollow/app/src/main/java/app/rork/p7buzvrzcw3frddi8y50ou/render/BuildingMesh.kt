@@ -13,8 +13,7 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.Terrain
 import kotlin.math.atan2
 
 /**
- * Turns a generated tile plan into 3D geometry, one box at a time, appended to the static world
- * mesh by the same [MeshBuilder] the hand-authored buildings use. Each floor stacks [STORY]
+ * Turns a generated tile plan into 3D geometry, one box at a time. Each floor stacks [STORY]
  * world units above the last, tile (x, y) directly above tile (x, y); the plan's south facade
  * (its front doors) looks toward the village square like every building's door does, because
  * larger tile rows map to local -z.
@@ -24,6 +23,11 @@ import kotlin.math.atan2
  * stairs — solid stepped blocks rising within the floor height; balcony — an open-air plank
  * slab; railing — a balustrade with a top rail, run along whichever way its neighbours run.
  * Empty tiles make nothing.
+ *
+ * Baking: [bakeLocal] emits a whole plan at identity placement into one combined local-space
+ * vertex stream — the derived artifact [BuildingModels] caches. [emit] keeps the older direct
+ * world-space path for tests and reference. The tile plan itself stays authoritative in the
+ * [BuildingCache]; no bake ever consumes it, and nothing here reads a mesh back.
  */
 object BuildingMesh {
     private const val WINDOW_SILL = 0.9f
@@ -44,6 +48,82 @@ object BuildingMesh {
         for (f in gen.floors) emitFloor(m, gen, f, wall)
         emitRoof(m, gen, roof)
         return true
+    }
+
+    /**
+     * Bakes [plan]'s static architecture — walls, floors, doors, windows, posts, stairs,
+     * balconies, railings and the gable roof — into one combined local-space model.
+     */
+    fun bakeLocal(plan: Building, wall: FloatArray, roof: FloatArray): MeshBuilder {
+        val m = MeshBuilder(1 shl 15)
+        m.place(0f, 0f, 0f, 0f)
+        for (f in plan.floors) emitFloor(m, plan, f, wall)
+        emitRoof(m, plan, roof)
+        return m
+    }
+
+    /**
+     * Bakes a building's hand-authored shell — the inn's and shop's authored silhouettes,
+     * the well's stones, or the fallback shell a failed procedural build stands in for —
+     * into the same combined local-space form. The authored definition stays authoritative;
+     * this is only its baked picture.
+     */
+    fun bakeShellLocal(def: BuildingDef): MeshBuilder {
+        val m = MeshBuilder(1 shl 14)
+        m.place(0f, 0f, 0f, 0f)
+        if (def.type == "well") {
+            m.box(0f, 0.45f, 0f, 1.1f, 0.45f, 1.1f, 0.55f, 0.54f, 0.52f)
+            m.box(0f, 0.86f, 0f, 0.8f, 0.05f, 0.8f, 0.12f, 0.2f, 0.28f)
+            m.box(-0.95f, 1.5f, 0f, 0.09f, 1.1f, 0.09f, 0.34f, 0.24f, 0.16f)
+            m.box(0.95f, 1.5f, 0f, 0.09f, 1.1f, 0.09f, 0.34f, 0.24f, 0.16f)
+            m.gable(1.4f, 1.1f, 2.5f, 0.7f, 0.42f, 0.25f, 0.17f)
+            return m
+        }
+        val wall = hexToRgb(def.wall)
+        val roof = hexToRgb(def.roof)
+        val ex = def.w / 2f
+        val ez = def.d / 2f
+        // Stone footing, plastered walls, timber frame.
+        m.box(0f, 0.2f, 0f, ex + 0.12f, 0.45f, ez + 0.12f, 0.50f, 0.48f, 0.45f)
+        m.box(0f, def.h / 2f + 0.3f, 0f, ex, def.h / 2f, ez, wall[0], wall[1], wall[2])
+        val tr = 0.30f; val tg = 0.21f; val tb = 0.14f
+        for (sx in intArrayOf(-1, 1)) for (sz in intArrayOf(-1, 1)) {
+            m.box(sx * ex, def.h / 2f + 0.3f, sz * ez, 0.16f, def.h / 2f, 0.16f, tr, tg, tb)
+        }
+        m.box(0f, def.h + 0.2f, -ez, ex, 0.12f, 0.1f, tr, tg, tb)
+        m.box(0f, def.h + 0.2f, ez, ex, 0.12f, 0.1f, tr, tg, tb)
+        m.gable(ex + 0.5f, ez + 0.6f, def.h + 0.3f, def.d * 0.42f, roof[0], roof[1], roof[2])
+        m.box(ex * 0.55f, def.h + def.d * 0.36f, ez * 0.2f, 0.4f, def.d * 0.3f, 0.4f, 0.48f, 0.44f, 0.42f)
+        // The door looks onto the square (local -z).
+        m.box(0f, 1.25f, -ez - 0.03f, 0.6f, 1.0f, 0.06f, 0.27f, 0.17f, 0.10f)
+        m.box(0f, 0.2f, -ez - 0.7f, 0.9f, 0.14f, 0.6f, 0.52f, 0.50f, 0.47f)
+        m.glow = true
+        val wy = def.h * 0.55f + 0.3f
+        if (ex > 3f) {
+            m.box(-ex * 0.58f, wy, -ez - 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.78f, 0.38f)
+            m.box(ex * 0.58f, wy, -ez - 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.78f, 0.38f)
+        }
+        m.box(-ex - 0.02f, wy, 0f, 0.05f, 0.5f, 0.45f, 1.0f, 0.74f, 0.34f)
+        m.box(ex + 0.02f, wy, 0f, 0.05f, 0.5f, 0.45f, 1.0f, 0.74f, 0.34f)
+        m.box(0f, wy, ez + 0.02f, 0.45f, 0.5f, 0.05f, 1.0f, 0.74f, 0.34f)
+        if (def.type == "smithy") m.box(-ex - 1.6f, 1.0f, -ez * 0.3f, 0.35f, 0.25f, 0.35f, 1.0f, 0.45f, 0.12f)
+        m.glow = false
+        when (def.type) {
+            "smithy" -> {
+                // Open lean-to with the forge and the anvil.
+                m.box(-ex - 1.6f, 0.5f, -ez * 0.3f, 0.8f, 0.5f, 0.8f, 0.42f, 0.40f, 0.39f)
+                m.box(-ex - 1.6f, 0.55f, -ez * 0.3f - 1.9f, 0.45f, 0.3f, 0.22f, 0.20f, 0.20f, 0.22f)
+                m.box(-ex - 3f, 1.4f, -ez * 0.3f - 1.4f, 0.1f, 1.4f, 0.1f, tr, tg, tb)
+                m.box(-ex - 3f, 1.4f, -ez * 0.3f + 1.4f, 0.1f, 1.4f, 0.1f, tr, tg, tb)
+                m.box(-ex - 1.6f, 2.85f, -ez * 0.3f, 1.7f, 0.08f, 1.9f, roof[0] * 0.9f, roof[1] * 0.9f, roof[2] * 0.9f)
+            }
+            "inn", "shop" -> {
+                // Hanging sign beside the door.
+                m.box(1.5f, 2.9f, -ez - 0.6f, 0.06f, 0.06f, 0.6f, tr, tg, tb)
+                m.box(1.5f, 2.4f, -ez - 0.8f, 0.05f, 0.35f, 0.4f, 0.36f, 0.42f, 0.23f)
+            }
+        }
+        return m
     }
 
     private fun emitFloor(m: MeshBuilder, gen: Building, f: FloorPlan, wall: FloatArray) {
