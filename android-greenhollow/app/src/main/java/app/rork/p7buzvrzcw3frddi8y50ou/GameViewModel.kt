@@ -302,7 +302,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val issues = registry?.issues.orEmpty().map {
             "[${it.severity}] ${it.packId}${if (it.entry.isNotEmpty()) " / ${it.entry}" else ""}: ${it.message}"
         }
-        return Diagnostics.report(header, issues)
+        return Diagnostics.report(header, issues, registry?.buildings.orEmpty())
     }
 
     fun newLife() {

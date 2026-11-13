@@ -36,6 +36,28 @@ object BuildingCache {
     /** One entry per generated plan, for the diagnostics report. */
     val summaries = LinkedHashMap<String, Summary>()
 
+    /** How a loaded world's buildings are rendered, for the diagnostics coverage summary:
+     *  every building is either grown from a plan (its pack opted in with "procedural")
+     *  or keeps a hand-authored shell the pack chose to author. A procedural building
+     *  whose plan could not be grown is a fallback: the shell is rendered instead and
+     *  the reason is kept so nothing fails silently. */
+    class Coverage(
+        val total: Int,
+        val procedural: Int,
+        val authored: List<String>,
+        val fallbacks: List<Pair<String, String>>,
+    )
+
+    fun coverage(buildings: Collection<BuildingDef>): Coverage {
+        val procedural = buildings.filter { it.procedural }
+        val authored = buildings.filterNot { it.procedural }
+        val fallbacks = procedural.mapNotNull { d ->
+            val s = summaries[d.id]
+            if (s?.building == null) d.id to (s?.problems ?: "no plan was recorded") else null
+        }
+        return Coverage(buildings.size, procedural.size, authored.map { it.id }, fallbacks)
+    }
+
     /**
      * A building without an explicit seed still gets a stable one, derived from its id —
      * the same pack always grows the same hall, from session to session and device to device.
@@ -59,7 +81,14 @@ object BuildingCache {
     /** The plan for this definition, generated and validated on first ask. Null when it never managed one. */
     fun get(def: BuildingDef): Building? {
         val k = key(def)
-        cache[k]?.let { return it }
+        cache[k]?.let {
+            // A cached plan always reports itself, so coverage and the diagnostics
+            // report see a sound plan even when generation ran before their time.
+            if (summaries[def.id]?.building == null) {
+                summaries[def.id] = Summary(def.id, def.name, it.seed, it.floors.size, it.attempts, true, "", it, planProfile(def))
+            }
+            return it
+        }
         return try {
             val b = generateBuilding(options(def))
             cache[k] = b

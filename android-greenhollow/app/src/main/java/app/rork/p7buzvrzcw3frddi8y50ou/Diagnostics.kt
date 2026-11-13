@@ -1,5 +1,6 @@
 package app.rork.p7buzvrzcw3frddi8y50ou
 
+import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.renderAscii
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -133,8 +134,9 @@ object Diagnostics {
 
     fun time(millis: Long): String = if (millis <= 0) "never" else stamp.format(Date(millis))
 
-    /** The plain-text report behind the Share report button. */
-    fun report(header: List<String>, contentIssues: List<String>): String = buildString {
+    /** The plain-text report behind the Share report button. [buildings] is the loaded
+     *  world's buildings, for the rendering coverage summary. */
+    fun report(header: List<String>, contentIssues: List<String>, buildings: Map<String, BuildingDef> = emptyMap()): String = buildString {
         val s = state.value
         appendLine("Greenhollow diagnostics report")
         appendLine("Written ${time(System.currentTimeMillis())}")
@@ -168,7 +170,22 @@ object Diagnostics {
         appendLine("PROPERTIES")
         appendLine("Properties held: ${sim.properties} (${sim.propertyRels} relationships, the paper changed ${sim.propertyChanges} times)")
         appendLine()
-        appendLine("PROCEDURAL BUILDINGS")
+        appendLine("BUILDINGS")
+        if (buildings.isEmpty()) {
+            appendLine("No buildings are loaded.")
+        } else {
+            val cov = BuildingCache.coverage(buildings.values)
+            appendLine("${cov.total} buildings: ${cov.procedural} grown from plans, ${cov.authored.size} hand-authored shells (${cov.authored.joinToString()}).")
+            if (cov.fallbacks.isEmpty()) {
+                appendLine("Every procedural building grew a plan; nothing fell back.")
+            } else {
+                cov.fallbacks.forEach { (id, why) ->
+                    appendLine("FALLBACK $id: $why — the hand-authored shell is rendered instead.")
+                }
+            }
+        }
+        appendLine()
+        appendLine("PLANS GROWN")
         if (BuildingCache.summaries.isEmpty()) {
             appendLine("None.")
         } else {

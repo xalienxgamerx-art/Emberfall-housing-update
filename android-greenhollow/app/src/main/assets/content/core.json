@@ -1805,6 +1805,7 @@
       "h": 3.8,
       "wall": "#C2A678",
       "roof": "#5E3A28",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },
@@ -1877,7 +1878,6 @@
         }
       ],
       "profile": "tavern",
-      "genFloors": 3,
       "intWidth": 20,
       "intDepth": 13
     },
@@ -1923,7 +1923,6 @@
         }
       ],
       "profile": "townhouse",
-      "genFloors": 2,
       "intWidth": 12,
       "intDepth": 11
     },
@@ -1942,6 +1941,7 @@
       "h": 3.6,
       "wall": "#C8AE82",
       "roof": "#6B3F2A",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },
@@ -1960,6 +1960,7 @@
       "h": 3.8,
       "wall": "#BFA273",
       "roof": "#7A5230",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },
@@ -1978,6 +1979,7 @@
       "h": 3.5,
       "wall": "#A88E66",
       "roof": "#4A3526",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },
@@ -1996,6 +1998,7 @@
       "h": 4.4,
       "wall": "#C4B090",
       "roof": "#4B4763",
+      "procedural": true,
       "profile": "townhouse",
       "genFloors": 2,
       "intWidth": 12,
@@ -2018,6 +2021,7 @@
       "wall": "#9E9488",
       "roof": "#3E3630",
       "interact": "forge",
+      "procedural": true,
       "profile": "workshop",
       "genFloors": 1
     },
@@ -2036,6 +2040,7 @@
       "h": 3.6,
       "wall": "#B59E78",
       "roof": "#5A3D2C",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },
@@ -2054,6 +2059,7 @@
       "h": 3.8,
       "wall": "#C6AC80",
       "roof": "#6E4630",
+      "procedural": true,
       "profile": "cottage",
       "genFloors": 2
     },

@@ -484,6 +484,12 @@ object ContentBuilder {
                 warn(buildings, id, "The building '$id' claims the interior profile '${d.intProfile}', which is not one of: ${ArchitecturalProfiles.NAMES.joinToString()}. The interior grows under the building's own profile instead.")
                 intProfile = ""
             }
+            // Exterior generation options only shape a plan for a building that has opted in
+            // with "procedural". Setting them without the flag is almost always a flag that
+            // was forgotten, so it is named rather than left as an accident of omission.
+            if (!d.procedural && (d.genSeed != 0L || d.genFloors > 0 || d.genWidth > 0 || d.genDepth > 0)) {
+                warn(buildings, id, "The building '$id' sets exterior generation options but has not opted in with \"procedural\", so they shape no plan. Add \"procedural\" to grow the building, or remove the options if the hand-authored shell is intentional.")
+            }
             var intFloors = d.intFloors
             if (intFloors < 0) {
                 warn(buildings, id, "The building '$id' asks for $intFloors interior floors, and floors count up from the ground. The interior uses its profile's range instead.")

@@ -234,7 +234,13 @@ data class BuildingDef(
     val wall: String = "#C9B48A",
     val roof: String = "#6B3F2A",
     val interact: String = "",
-    /** When true, the building is grown from a generated multi-floor tile plan instead of the simple box. */
+    /** When true, the building is grown from a generated multi-floor tile plan instead of
+     *  the hand-authored box shell. This is an explicit opt-in, and it is the standard for
+     *  ordinary settlement buildings; a pack leaves it unset only on purpose — a landmark
+     *  or a building whose authored room data is canonical. Unset means the authored shell
+     *  is kept, so existing and third-party packs are never silently converted; when a
+     *  procedural building's plan cannot be grown, the shell is rendered as a fallback and
+     *  the fallback is reported in Diagnostics, never swallowed. */
     val procedural: Boolean = false,
     /** Seed for the generator; 0 derives a stable seed from the id, so the same hall always grows the same. */
     val genSeed: Long = 0,

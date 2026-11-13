@@ -1,8 +1,10 @@
 package app.rork.p7buzvrzcw3frddi8y50ou.render
 
+import app.rork.p7buzvrzcw3frddi8y50ou.Diagnostics
 import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ContentRegistry
 import app.rork.p7buzvrzcw3frddi8y50ou.data.hexToRgb
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Terrain
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -248,8 +250,17 @@ object WorldMesh {
 
         for (b in content.buildings.values) {
             // A procedural building is grown from its tile plan into the same static batch;
-            // if generation ever fails, it falls back to the simple box so no building vanishes.
-            if (!(b.procedural && BuildingMesh.emit(m, b))) building(m, b)
+            // if generation ever fails, it falls back to the simple box so no building
+            // vanishes — and the fallback is written down, never swallowed silently.
+            if (b.procedural && BuildingMesh.emit(m, b)) continue
+            building(m, b)
+            if (b.procedural) {
+                val why = BuildingCache.summaries[b.id]?.problems?.take(160) ?: "no plan was grown"
+                Diagnostics.record(
+                    "procedural",
+                    "The building '${b.name}' fell back to its hand-authored shell because no plan could be grown for it: $why",
+                )
+            }
         }
         roadside(m)
 
